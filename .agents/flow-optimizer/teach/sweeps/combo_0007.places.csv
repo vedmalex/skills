@@ -1,0 +1,9 @@
+place_id,tokens
+Flow.P_start,0
+Flow.P_intake,0
+Flow.P_resources,0
+Flow.P_lesson_gen,0
+Flow.P_review_gate,0
+Flow.P_finalize,0
+Flow.P_archived,1
+Flow.P_blocked,0

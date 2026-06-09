@@ -1,0 +1,136 @@
+simulation TeachTokens {
+    // --- Gate params (calibrated; permissive per user) ---
+    param w_revise type=float default=0.07 range=[0.0,1.0];
+    param w_block  type=float default=0.02 range=[0.0,0.5];
+
+    // --- Course shape ---
+    param n_sessions type=int default=10 range=[1,50];
+
+    // --- Design knobs (the 3 proposals, as 0/1 flags) ---
+    // static_formats: 1 = ALL *-FORMAT.md loaded every session (the premise rec.A ASSUMES);
+    //                 0 = on-demand (the TRUE current behaviour: SKILL.md only LINKS them).
+    param static_formats type=int default=0 range=[0,1];
+    // full_history: 1 = read ALL prior learning-records (current); 0 = last 3 + NOTES summary (rec.B).
+    param full_history   type=int default=1 range=[0,1];
+    // inline_style: 1 = inline <style> per lesson (current); 0 = shared stylesheet link (rec.C).
+    param inline_style   type=int default=1 range=[0,1];
+
+    // --- Token-size constants (tokens; calibrated from real word counts, declared as tunable params) ---
+    param tok_skill       type=float default=1600.0 range=[0.0,10000.0];  // SKILL.md (1186 words)
+    param tok_format      type=float default=400.0  range=[0.0,5000.0];   // one *-FORMAT.md (~300 words)
+    param tok_record      type=float default=350.0  range=[0.0,5000.0];   // one learning-record read
+    param tok_notes       type=float default=300.0  range=[0.0,5000.0];   // compact NOTES "Completed" summary
+    param tok_lesson_base type=float default=2000.0 range=[0.0,20000.0];  // lesson HTML content (completion)
+    param tok_style       type=float default=1500.0 range=[0.0,20000.0];  // inline CSS/boilerplate per lesson
+
+    end_time = 500.0;
+    runs = 500;
+    stats = "teach_tokens_stats.csv";
+
+    rng draw { seed = 7; }
+
+    // --- Petri layer: structural invariant for ONE lesson's verdict gate (C1 multiplicative split, C4 invariant-only) ---
+    petri Gate {
+        place P_gen initial=1;
+        place P_proceed;
+        place P_revise_sink;
+        place P_blocked;
+
+        transition T_gen timed exponential rate=1.0;
+        transition T_proceed immediate weight = (1.0 - w_block) * (1.0 - w_revise);
+        transition T_revise  immediate weight = (1.0 - w_block) * w_revise;
+        transition T_block   immediate weight = w_block;
+
+        arc P_gen -> T_gen;
+        arc T_gen -> P_proceed;       // representative single firing for invariant check
+        arc P_proceed -> T_proceed;
+        arc T_proceed -> P_revise_sink;
+        arc P_proceed -> T_revise;
+        arc T_revise -> P_revise_sink;
+        arc P_proceed -> T_block;
+        arc T_block -> P_blocked;
+
+        assert always (tokens(P_gen) + tokens(P_proceed) + tokens(P_revise_sink) + tokens(P_blocked) <= 1);
+    }
+
+    // --- Monte-Carlo token-accounting layer (C2): cut-points algebraically identical to petri weights ---
+    stat tok_total: Count;
+    stat tok_prompt: Count;
+    stat tok_completion: Count;
+    stat da_load: Count;          // total lesson-gen passes across the whole course
+    stat lessons_archived: Count; // successfully completed lessons in the course
+
+    process mc() {
+        var total: f64 = 0.0;
+        var prompt_total: f64 = 0.0;
+        var completion_total: f64 = 0.0;
+        var da_total: f64 = 0.0;
+        var archived: f64 = 0.0;
+
+        var s: i32 = 0;
+        while (s < n_sessions) {
+            let prior: f64 = s;   // number of prior lessons already on disk
+
+            // ---- Prompt tokens for this session ----
+            var prompt_tok: f64 = tok_skill;
+
+            // FORMAT-file loading
+            if (static_formats == 1) {
+                prompt_tok = prompt_tok + 4.0 * tok_format;        // all 4 every session (rec.A premise)
+            } else {
+                prompt_tok = prompt_tok + tok_format;              // on-demand: ~1 format/session (current TRUTH)
+            }
+
+            // ZPD history read
+            if (full_history == 1) {
+                prompt_tok = prompt_tok + prior * tok_record;      // read ALL prior records (current)
+            } else {
+                var h: f64 = prior;                                // last 3 + NOTES summary (rec.B)
+                if (h > 3.0) { h = 3.0; }
+                prompt_tok = prompt_tok + h * tok_record + tok_notes;
+            }
+
+            // ---- Lesson-gen / verdict gate (rework multiplies completion tokens) ----
+            var attempts: f64 = 0.0;
+            var looping: i32 = 1;
+            var rework: i32 = 0;
+            var lesson_ok: i32 = 0;
+            while (looping == 1) {
+                attempts = attempts + 1.0;
+                let u: f64 = draw.uniform(0.0, 1.0);
+                let block_cut: f64 = w_block;
+                let revise_cut: f64 = w_block + (1.0 - w_block) * w_revise;
+                if (u < block_cut) {
+                    looping = 0;                                   // blocked lesson
+                } else {
+                    if (u < revise_cut) {
+                        rework = rework + 1;
+                        if (rework >= 50) { looping = 0; }          // abort cap
+                    } else {
+                        looping = 0;
+                        lesson_ok = 1;                              // proceed
+                    }
+                }
+            }
+            da_total = da_total + attempts;
+            if (lesson_ok == 1) { archived = archived + 1.0; }
+
+            // ---- Completion tokens: one lesson-gen pass per attempt ----
+            var lesson_unit: f64 = tok_lesson_base;
+            if (inline_style == 1) { lesson_unit = lesson_unit + tok_style; }
+            let completion_tok: f64 = attempts * lesson_unit;
+
+            prompt_total = prompt_total + prompt_tok;
+            completion_total = completion_total + completion_tok;
+            total = total + prompt_tok + completion_tok;
+
+            s = s + 1;
+        }
+
+        tok_total.record(total);
+        tok_prompt.record(prompt_total);
+        tok_completion.record(completion_total);
+        da_load.record(da_total);
+        lessons_archived.record(archived);
+    }
+}

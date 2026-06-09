@@ -1,0 +1,5 @@
+place_id,tokens
+Gate.P_gen,0
+Gate.P_proceed,0
+Gate.P_revise_sink,1
+Gate.P_blocked,0

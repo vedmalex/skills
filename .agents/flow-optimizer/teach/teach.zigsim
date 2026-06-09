@@ -1,0 +1,128 @@
+simulation TeachFlow {
+    param w_revise type=float default=0.50 range=[0.0,1.0];
+    param w_block  type=float default=0.02 range=[0.0,0.5];
+    param impl_rate type=float default=0.114 range=[0.05,1.0];
+
+    end_time = 500.0;
+    runs = 500;
+    stats = "teach_flow_stats.csv";
+
+    rng draw { seed = 7; }
+
+    // --- Petri net layer for invariants ---
+    petri Flow {
+        place P_start initial=1;
+        place P_intake;
+        place P_resources;
+        place P_lesson_gen;
+        place P_review_gate;
+        place P_finalize;
+        place P_archived;
+        place P_blocked;
+
+        transition T_start immediate;
+        transition T_intake_work timed exponential rate=2.0;
+        transition T_resources_work timed exponential rate=1.0;
+        transition T_lesson_gen_work timed exponential rate=impl_rate;
+        transition T_proceed immediate weight = (1.0 - w_block) * (1.0 - w_revise);
+        transition T_revise  immediate weight = (1.0 - w_block) * w_revise;
+        transition T_block   immediate weight = w_block;
+        transition T_finalize_work timed exponential rate=2.5;
+
+        arc P_start -> T_start;
+        arc T_start -> P_intake;
+
+        arc P_intake -> T_intake_work;
+        arc T_intake_work -> P_resources;
+
+        arc P_resources -> T_resources_work;
+        arc T_resources_work -> P_lesson_gen;
+
+        arc P_lesson_gen -> T_lesson_gen_work;
+        arc T_lesson_gen_work -> P_review_gate;
+
+        arc P_review_gate -> T_proceed;
+        arc T_proceed -> P_finalize;
+
+        arc P_review_gate -> T_revise;
+        arc T_revise -> P_lesson_gen;
+
+        arc P_review_gate -> T_block;
+        arc T_block -> P_blocked;
+
+        arc P_finalize -> T_finalize_work;
+        arc T_finalize_work -> P_archived;
+
+        assert always (tokens(P_start) + tokens(P_intake) + tokens(P_resources) + tokens(P_lesson_gen) + tokens(P_review_gate) + tokens(P_finalize) + tokens(P_archived) + tokens(P_blocked) == 1);
+    }
+
+    // --- Monte-Carlo metric layer (C2) ---
+    stat out_archived: Count;
+    stat out_blocked: Count;
+    stat out_aborted: Count;
+    stat da_load: Count;
+    stat da_iters_gate: Count;
+
+    process mc() {
+        var active: i32 = 1;
+        var da_count: f64 = 0.0;
+        var iters: f64 = 0.0;
+        var aborted: f64 = 0.0;
+        var blocked: f64 = 0.0;
+        var archived: f64 = 0.0;
+        
+        // Step 1: Intake (Mission verification)
+        hold draw.exponential(2.0);
+
+        // Step 2: Resources gathering
+        hold draw.exponential(1.0);
+
+        // Step 3: Lesson generation & Review loop
+        var rework_count: i32 = 0;
+        var review_looping: i32 = 1;
+        
+        while (review_looping == 1) {
+            // Lesson generation work
+            hold draw.exponential(impl_rate);
+            
+            var u: f64 = draw.uniform(0.0, 1.0);
+            u = u;
+            var block_cut: f64 = w_block;
+            block_cut = block_cut;
+            var revise_cut: f64 = w_block + (1.0 - w_block) * w_revise;
+            revise_cut = revise_cut;
+            
+            da_count = da_count + 1.0;
+            iters = iters + 1.0;
+            
+            if (u < block_cut) {
+                blocked = 1.0;
+                review_looping = 0;
+                active = 0;
+            } else {
+                if (u < revise_cut) {
+                    rework_count = rework_count + 1;
+                    if (rework_count >= 50) {
+                        aborted = 1.0;
+                        review_looping = 0;
+                        active = 0;
+                    }
+                } else {
+                    review_looping = 0;
+                }
+            }
+        }
+        
+        if (active == 1) {
+            // Step 4: Finalize files (learning records, glossaries, notes)
+            hold draw.exponential(2.5);
+            archived = 1.0;
+        }
+        
+        out_archived.record(archived);
+        out_blocked.record(blocked);
+        out_aborted.record(aborted);
+        da_load.record(da_count);
+        da_iters_gate.record(iters);
+    }
+}

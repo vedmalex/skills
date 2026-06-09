@@ -1,0 +1,5 @@
+# Compiled simulation outputs — regenerable from the .zigsim models via `zigsim sweep`.
+# Keep the models (*.zigsim), aggregate/per-combo CSVs, and the analysis report;
+# drop the heavy build products.
+sim
+sim.zig
