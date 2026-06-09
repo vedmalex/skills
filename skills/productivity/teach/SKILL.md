@@ -36,6 +36,8 @@ A lesson is the main thing you produce — the unit in which knowledge and skill
 
 A lesson should be **beautiful** — clean, readable typography and layout — since the user will return to these later to review.
 
+Keep lesson styling in a single shared stylesheet at `./reference/lesson-style.css`, and have each lesson link it (`<link rel="stylesheet" href="../reference/lesson-style.css">`) rather than embedding a `<style>` block. Create the stylesheet on the first lesson and reuse it for every lesson thereafter — this keeps lessons visually consistent and avoids regenerating CSS boilerplate in every file. Reserve inline `<style>` for the rare lesson-specific tweak only.
+
 The lesson should teach ONE THING only. It should be completable very quickly - but give the user a tangible win that they can build on. It should be directly tied to the mission, and should be in the user's zone of proximal development.
 
 Make opening a lesson as easy as possible — ideally a single CLI command the user can run to open the HTML file in their browser.
@@ -57,6 +59,8 @@ The user may specify an exact thing they want to learn. If they don't, figure ou
 - Reading their `learning-records`
 - Figuring out the right thing to teach them based on their mission
 - Teach the most relevant thing that fits in their zone of proximal development
+
+Once there are many learning records (roughly **8 or more**), don't read every file. Read the **most recent 3** in full, and rely on the `# Completed Concepts` summary in `NOTES.md` (see below) for everything older. Below that threshold, reading all records is cheaper than maintaining the summary — so just read them all.
 
 A user may tell you that they already know about that topic. If so, record it in their `learning-records`.
 
@@ -107,3 +111,5 @@ Glossaries, in particular, are an essential reference. Once one is created, it s
 ## `NOTES.md`
 
 The user will sometimes express preferences of how they want to be taught, or things you should keep in mind. This is the place to record those preferences, so you can refer back to them when designing lessons or working with the user.
+
+Also maintain a `# Completed Concepts` section here: a compact running list of topics the user has already learned, updated at the end of each session. This lets you judge the zone of proximal development from older lessons without re-reading every learning record once the history grows large.
